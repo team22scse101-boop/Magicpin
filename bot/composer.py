@@ -219,6 +219,38 @@ def _get_peer_stats_summary(category: dict) -> str:
             parts.append(f"{k}={v}")
     return f"Peer benchmarks ({ps.get('scope', 'general')}): {', '.join(parts)}"
 
+def _get_trigger_framing(kind: str, merchant: dict, trigger: dict, customer: Optional[dict]) -> str:
+    """Return trigger-specific prompt instructions."""
+    owner = merchant.get("identity", {}).get("owner_first_name", "")
+    perf = merchant.get("performance", {})
+    delta = perf.get("delta_7d", {})
+    payload = trigger.get("payload", {})
+
+    framings = {
+        "perf_spike": f"ANGLE: Celebrate the spike. Cite exact numbers (views={perf.get('views')}, calls={perf.get('calls')}). Show the 7d delta. Ask if they want to amplify with an offer. CTA: binary_yes_no.",
+        "perf_dip": f"ANGLE: Urgent but supportive. Cite the drop ({delta.get('views_pct', 0):+.0%} views). Compare to peer benchmarks. Suggest ONE specific fix (new offer, photo update, or boost). CTA: binary_yes_no.",
+        "renewal_due": f"ANGLE: Subscription urgency. Mention days remaining. Cite what they'd lose (visibility, calls). Reference their best metric. CTA: binary_confirm_cancel.",
+        "dormant_with_vera": "ANGLE: Re-engagement. Reference their last conversation topic. Ask a single low-effort question to restart. CTA: binary_yes_no.",
+        "milestone_reached": f"ANGLE: Celebration + upsell. Cite the exact milestone from payload. Congratulate {owner}. Suggest sharing as a social proof post. CTA: binary_yes_no.",
+        "review_theme_emerged": "ANGLE: Cite the exact review theme and quote. If positive, suggest amplifying. If negative, suggest addressing. CTA: open_ended.",
+        "competitor_opened": "ANGLE: Competitive urgency. Mention the new competitor. Suggest a defensive action (boost, new offer, profile update). CTA: binary_yes_no.",
+        "festival_upcoming": "ANGLE: Seasonal opportunity. Name the specific festival. Suggest a themed offer or campaign. Create FOMO with timing. CTA: binary_yes_no.",
+        "recall_due": "ANGLE: Customer care. Reference the specific patient/customer and their last visit. Suggest sending a recall message. CTA: binary_confirm_cancel.",
+        "customer_lapsed_soft": "ANGLE: Win-back the customer. Cite visit history and time since last visit. Draft a personalized re-engagement message. CTA: binary_confirm_cancel.",
+        "customer_lapsed_hard": "ANGLE: Last-chance win-back. Cite total lifetime value. Suggest a special offer to bring them back. CTA: binary_yes_no.",
+        "appointment_tomorrow": "ANGLE: Reminder. Confirm the appointment details. Keep it short and warm. CTA: binary_confirm_cancel.",
+        "chronic_refill_due": "ANGLE: Health reminder. Reference the specific medication and refill schedule. Suggest sending a refill reminder. CTA: binary_confirm_cancel.",
+        "trial_followup": "ANGLE: Convert trial to paid. Reference the trial details and experience. Ask about conversion. CTA: binary_yes_no.",
+        "research_digest": "ANGLE: Share a relevant industry insight from the digest. Connect it to their practice. Suggest an action. CTA: open_ended.",
+        "winback_eligible": "ANGLE: Re-engage lapsed merchant. Reference their past performance. Show what they're missing. CTA: binary_yes_no.",
+        "supply_alert": "ANGLE: Urgent supply notification. Cite the specific product/supply issue. Suggest immediate action. CTA: binary_yes_no.",
+        "curious_ask_due": "ANGLE: Proactive check-in. Ask about a specific aspect of their business. Low-pressure, curiosity-driven. CTA: open_ended.",
+        "category_seasonal": "ANGLE: Seasonal trend. Cite the specific seasonal pattern. Suggest capitalizing on it now. CTA: binary_yes_no.",
+        "gbp_unverified": "ANGLE: Business profile urgency. Explain visibility loss from unverified profile. Offer to help verify. CTA: binary_yes_no.",
+        "cde_opportunity": "ANGLE: Educational opportunity. Reference the specific event/webinar. Explain the benefit. CTA: binary_yes_no.",
+    }
+    return framings.get(kind, f"ANGLE: Address the {kind} trigger directly. Cite specific numbers. One clear CTA.")
+
 
 def compose(category: dict, merchant: dict, trigger: dict,
             customer: Optional[dict] = None) -> dict:
@@ -273,6 +305,8 @@ Trend signals: {json.dumps(category.get('trend_signals', [])[:3], ensure_ascii=F
 === TASK ===
 Compose the WhatsApp message. Send as: {send_as}.
 Trigger kind: {kind}.
+
+{_get_trigger_framing(kind, merchant, trigger, customer)}
 
 Return ONLY this JSON (no markdown, no extra text):
 {{

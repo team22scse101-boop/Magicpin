@@ -131,23 +131,53 @@ def handle_reply(store: ContextStore, conversation_id: str, merchant_id: str,
         customer = store.get_customer(customer_id) if customer_id else None
         conv_history = store.get_conversation(conversation_id)
 
-        # Use LLM to compose action-mode response
+        # Try LLM first
         result = compose_reply(category, merchant, original_trigger,
                                conv_history, message, customer)
 
-        # Ensure it's in action mode, not qualifying
-        if result.get("action") == "send":
-            body = result.get("body", "")
+        # Check if we got a real response (not a fallback)
+        body = result.get("body", "")
+        is_fallback = "follow up" in body.lower() or "noted" in body.lower() or not body
+
+        if result.get("action") == "send" and not is_fallback:
+            # Check for qualifying questions — override with action mode
             qualifying_words = ["would you", "do you think", "can you tell me", "how about"]
             if any(q in body.lower() for q in qualifying_words):
-                # Override with action-mode response
                 owner = merchant.get("identity", {}).get("owner_first_name", "")
                 result["body"] = (f"Great, {owner}! Working on it now — I'll have the draft ready in a moment. "
                                   f"Reply CONFIRM when you'd like me to proceed.")
                 result["cta"] = "binary_confirm_cancel"
                 result["rationale"] = "Merchant committed; switching to action mode immediately."
+            return result
 
-        return result
+        # Smart deterministic fallback based on trigger kind
+        owner = merchant.get("identity", {}).get("owner_first_name", "")
+        kind = original_trigger.get("kind", "update")
+        perf = merchant.get("performance", {})
+        offers = [o["title"] for o in merchant.get("offers", []) if o.get("status") == "active"]
+
+        action_responses = {
+            "perf_dip": f"On it, {owner}! I'm drafting a visibility boost campaign for you right now. Your views are at {perf.get('views', 0)} — let's push that up. Reply CONFIRM to activate.",
+            "perf_spike": f"Let's lock this in, {owner}! I'll draft a special offer to convert these {perf.get('views', 0)} views into more calls. Reply CONFIRM to launch.",
+            "renewal_due": f"Processing your renewal now, {owner}. Your current plan keeps your profile visible to {perf.get('views', 0)}+ monthly visitors. Reply CONFIRM to renew.",
+            "review_theme_emerged": f"Working on it, {owner}! I'll draft a response template for those reviews. Reply CONFIRM when you'd like me to publish.",
+            "competitor_opened": f"Smart move, {owner}! I'm preparing a competitive boost package — updated photos + a new offer to stand out. Reply CONFIRM to activate.",
+            "festival_upcoming": f"Let's go, {owner}! I'll create a festive offer for your listing right away. Reply CONFIRM once you see the draft.",
+            "recall_due": f"Sending the recall message now, {owner}! The patient will get a personalized reminder. Reply CONFIRM to send.",
+            "customer_lapsed_soft": f"Drafting a win-back message now, {owner}! I'll include their visit history to make it personal. Reply CONFIRM to send.",
+            "dormant_with_vera": f"Great to have you back, {owner}! Let me pull up your latest performance — {perf.get('views', 0)} views, {perf.get('calls', 0)} calls this month. Want me to suggest ways to improve?",
+            "trial_followup": f"Excellent, {owner}! I'll prepare the membership upgrade details. Reply CONFIRM to proceed.",
+        }
+
+        fallback_body = action_responses.get(kind,
+            f"On it, {owner}! I'm preparing everything based on your current performance ({perf.get('views', 0)} views, {perf.get('calls', 0)} calls). Reply CONFIRM to proceed.")
+
+        return {
+            "action": "send",
+            "body": fallback_body,
+            "cta": "binary_confirm_cancel",
+            "rationale": f"Merchant committed to {kind}; switching to action mode with context-specific response."
+        }
 
     # ─── General reply — use LLM ─────────────────────────────────────
     merchant = store.get_merchant(merchant_id) or {}
