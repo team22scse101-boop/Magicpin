@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+.DS_Store
+cloudflared.exe
+*.log
+start_tunnel.py
+test_api_key.py
