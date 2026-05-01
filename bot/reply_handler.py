@@ -42,7 +42,8 @@ def count_auto_replies_in_conversation(store: ContextStore, conversation_id: str
     for turn in reversed(turns):
         if turn.get("is_auto_reply"):
             count += 1
-        elif turn.get("from_role") in ("merchant", "vera", "system"):
+        elif turn.get("from_role") == "merchant":
+            # A real merchant message breaks the auto-reply chain
             break
     return count
 
@@ -97,7 +98,7 @@ def handle_reply(store: ContextStore, conversation_id: str, merchant_id: str,
                 "action": "send",
                 "body": "Looks like an auto-reply -- when the owner sees this, just reply 'Yes' and I'll take it from there.",
                 "cta": "binary_yes_no",
-                "rationale": "Detected auto-reply; count=" + str(auto_count) + " of needed 2. Prompt to flag for owner."
+                "rationale": "Detected auto-reply; one explicit prompt to flag it for the owner."
             }
 
     # --- Hostile / opt-out detection ---
