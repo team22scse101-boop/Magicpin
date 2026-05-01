@@ -41,9 +41,9 @@ def count_auto_replies_in_conversation(store: ContextStore, conversation_id: str
     turns = store.get_conversation(conversation_id)
     count = 0
     for turn in reversed(turns):
-        if turn.get("from_role") == "merchant" and turn.get("is_auto_reply"):
+        if turn.get("is_auto_reply"):
             count += 1
-        elif turn.get("from_role") == "merchant":
+        elif turn.get("from_role") in ("merchant", "vera", "system"):
             break
     return count
 
@@ -55,12 +55,16 @@ def handle_reply(store: ContextStore, conversation_id: str, merchant_id: str,
     Handle an incoming reply from merchant or customer.
     Returns the bot's response action.
     """
+    # Detect auto-reply early so we can tag the turn
+    is_auto = detect_auto_reply(message) if from_role == "merchant" else False
+
     # Record this turn
     store.add_conversation_turn(conversation_id, {
         "from_role": from_role,
         "body": message,
         "turn_number": turn_number,
         "merchant_id": merchant_id,
+        "is_auto_reply": is_auto,
     })
 
     # If the message is from a customer, use the customer LLM context instead of merchant logic
@@ -83,24 +87,14 @@ def handle_reply(store: ContextStore, conversation_id: str, merchant_id: str,
         }
 
     # ─── Auto-reply detection ─────────────────────────────────────────
-    if detect_auto_reply(message):
-        store.add_conversation_turn(conversation_id, {
-            "from_role": "system", "is_auto_reply": True,
-            "body": message, "merchant_id": merchant_id,
-        })
+    if is_auto:
         auto_count = count_auto_replies_in_conversation(store, conversation_id)
 
-        if auto_count >= 3:
-            store.end_conversation(conversation_id, "Auto-reply 3x — closing")
+        if auto_count >= 2:
+            store.end_conversation(conversation_id, "Auto-reply repeated — closing")
             return {
                 "action": "end",
-                "rationale": "Auto-reply detected 3+ times in a row. No real engagement signal; closing conversation."
-            }
-        elif auto_count >= 2:
-            return {
-                "action": "wait",
-                "wait_seconds": 86400,
-                "rationale": "Same auto-reply twice in a row — owner not at phone. Wait 24h before retry."
+                "rationale": f"Auto-reply detected {auto_count} times consecutively. Ending conversation to avoid spam."
             }
         else:
             return {

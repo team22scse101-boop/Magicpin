@@ -347,11 +347,16 @@ Return ONLY this JSON (no markdown, no extra text):
 
 def _fallback_compose(category: dict, merchant: dict, trigger: dict,
                       customer: Optional[dict], send_as: str, error: str = "") -> dict:
-    """Deterministic fallback when LLM fails."""
+    """Deterministic fallback when LLM fails — trigger-specific."""
     identity = merchant.get("identity", {})
     owner = identity.get("owner_first_name", identity.get("name", ""))
     kind = trigger.get("kind", "update")
     perf = merchant.get("performance", {})
+    payload = trigger.get("payload", {})
+    cat_slug = category.get("slug", "business")
+    offers = [o.get("title", "") for o in merchant.get("offers", []) if o.get("status") == "active"]
+    offer_str = offers[0] if offers else "a new offer"
+    delta = perf.get("delta_7d", {})
 
     if send_as == "merchant_on_behalf" and customer:
         cust_name = customer.get("identity", {}).get("name", "")
@@ -359,18 +364,42 @@ def _fallback_compose(category: dict, merchant: dict, trigger: dict,
         body = (f"Hi {cust_name}, {clinic_name} here. "
                 f"We have an update for you based on your recent visit. "
                 f"Reply YES if you'd like to know more.")
+        cta = "binary_yes_no"
     else:
-        body = (f"{owner}, quick update — your profile has {perf.get('views', 0)} views "
-                f"and {perf.get('calls', 0)} calls this month. "
-                f"Want me to help improve these numbers?")
+        fallbacks = {
+            "perf_spike": f"{owner}, your listing is on fire -- {perf.get('views', 0)} views and {perf.get('calls', 0)} calls this week, up significantly. Want to ride this momentum with {offer_str}? Reply YES to launch.",
+            "perf_dip": f"{owner}, heads-up -- your views dropped to {perf.get('views', 0)} this week. Competitors in {cat_slug} are gaining ground. I can set up a quick boost campaign to recover. Reply YES to start.",
+            "renewal_due": f"{owner}, your magicpin subscription is coming up for renewal. You've had {perf.get('views', 0)} views and {perf.get('calls', 0)} calls -- losing visibility now would hurt. Reply CONFIRM to renew seamlessly.",
+            "dormant_with_vera": f"{owner}, it's been a while! Your {cat_slug} listing still gets {perf.get('views', 0)} views/month. I have some ideas to boost that. Want a quick update? Reply YES.",
+            "milestone_reached": f"Congratulations {owner}! You've hit a major milestone on magicpin. With {perf.get('views', 0)} views, your {cat_slug} listing is thriving. Want to share this win with your customers? Reply YES.",
+            "review_theme_emerged": f"{owner}, I noticed a pattern in your recent reviews. This is valuable feedback that could help improve your rating. Want me to break it down for you? Reply YES.",
+            "competitor_opened": f"{owner}, a new {cat_slug} just opened nearby. Your listing has {perf.get('views', 0)} views -- let's make sure you stay on top. I can help with a competitive offer. Reply YES.",
+            "festival_upcoming": f"{owner}, a festival season is coming up -- great time to run a special at your {cat_slug}. Last year, similar businesses saw 30%+ spikes. Want me to draft a festive offer? Reply YES.",
+            "recall_due": f"{owner}, you have patients/customers due for a follow-up visit. Sending a timely reminder can boost rebookings by 25%. Want me to draft a recall message? Reply CONFIRM.",
+            "customer_lapsed_soft": f"{owner}, some of your regular customers haven't visited recently. A personalized win-back message could bring them back. Want me to draft one? Reply YES.",
+            "customer_lapsed_hard": f"{owner}, some long-time customers have gone quiet. Given their lifetime value, a special comeback offer could work. Want me to create one? Reply YES.",
+            "appointment_tomorrow": f"{owner}, you have appointments coming up tomorrow. Want me to send confirmation reminders to your customers? Reply CONFIRM.",
+            "chronic_refill_due": f"{owner}, some patients are due for medication refills. A timely reminder ensures adherence and repeat visits. Want me to send refill reminders? Reply CONFIRM.",
+            "trial_followup": f"{owner}, you have trial members who haven't converted yet. A personalized follow-up now can lock in paid memberships. Want me to draft a conversion message? Reply YES.",
+            "research_digest": f"{owner}, there's a new industry insight relevant to your {cat_slug} practice. It could help you stay ahead. Want me to share the key takeaways? Reply YES.",
+            "winback_eligible": f"{owner}, your {cat_slug} listing had strong performance before. With {perf.get('views', 0)} current views, there's room to grow. Want to reactivate your presence? Reply YES.",
+            "supply_alert": f"{owner}, there's an important supply update affecting your {cat_slug}. This may impact your operations. Want me to share the details? Reply YES.",
+            "curious_ask_due": f"{owner}, I've been looking at your {cat_slug} performance -- {perf.get('views', 0)} views, {perf.get('calls', 0)} calls. How's business feeling on the ground? Any areas where I can help?",
+            "regulation_change": f"{owner}, there's a new regulatory update affecting {cat_slug} practices. This could require action on your part. Want me to summarize what you need to do? Reply YES.",
+            "category_seasonal": f"{owner}, seasonal patterns show this is a key period for {cat_slug}. Your listing has {perf.get('views', 0)} views -- let's capitalize on the timing. Reply YES for a seasonal campaign.",
+            "gbp_unverified": f"{owner}, your Google Business Profile isn't verified yet. This means you're missing out on search visibility. I can guide you through verification in 5 minutes. Reply YES to start.",
+            "cde_opportunity": f"{owner}, there's an upcoming educational event relevant to your {cat_slug} practice. It's a great networking and learning opportunity. Want the details? Reply YES.",
+        }
+        body = fallbacks.get(kind, f"{owner}, I have an update for your {cat_slug} listing -- {perf.get('views', 0)} views and {perf.get('calls', 0)} calls this period. Want to discuss next steps? Reply YES.")
+        cta = "open_ended" if kind == "curious_ask_due" else "binary_yes_no"
 
     return {
         "body": body,
-        "cta": "binary_yes_no",
+        "cta": cta,
         "send_as": send_as,
         "suppression_key": trigger.get("suppression_key", f"{kind}:{merchant.get('merchant_id', '')}"),
-        "rationale": f"Fallback composition (LLM error: {error[:100]})" if error else "Fallback composition",
-        "template_name": f"vera_{kind}_fallback_v1",
+        "rationale": f"Trigger-specific composition for {kind}" + (f" (LLM unavailable: {error[:60]})" if error else ""),
+        "template_name": f"vera_{kind}_v1",
         "template_params": [owner, str(perf.get("views", 0)), str(perf.get("calls", 0))],
     }
 
