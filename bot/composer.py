@@ -316,7 +316,7 @@ Return ONLY this JSON (no markdown, no extra text):
 }}"""
 
     try:
-        raw = _call_gemini(user_prompt, system_prompt)
+        raw = _call_llm(user_prompt, system_prompt)
         result = _extract_json(raw)
 
         if not result.get("body"):
@@ -427,7 +427,7 @@ Compose Vera's reply. Return ONLY JSON:
 }}"""
 
     try:
-        raw = _call_gemini(user_prompt, system_prompt)
+        raw = _call_llm(user_prompt, system_prompt)
         result = _extract_json(raw)
 
         if not result.get("action"):

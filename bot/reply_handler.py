@@ -63,6 +63,18 @@ def handle_reply(store: ContextStore, conversation_id: str, merchant_id: str,
         "merchant_id": merchant_id,
     })
 
+    # If the message is from a customer, use the customer LLM context instead of merchant logic
+    if from_role == "customer":
+        merchant = store.get_merchant(merchant_id) or {}
+        category = store.get_category_for_merchant(merchant) or {}
+        original_trigger = _find_original_trigger(store, conversation_id) or {}
+        customer = store.get_customer(customer_id) if customer_id else {"identity": {"name": "Customer"}}
+        conv_history = store.get_conversation(conversation_id)
+
+        # For customer replies, we just want to help them or record their response
+        return compose_reply(category, merchant, original_trigger,
+                             conv_history, message, customer)
+
     # Check if conversation was already ended
     if store.is_conversation_ended(conversation_id):
         return {
@@ -103,10 +115,10 @@ def handle_reply(store: ContextStore, conversation_id: str, merchant_id: str,
         store.end_conversation(conversation_id, "Merchant hostile/opt-out")
         store.suppress_merchant(merchant_id, days=30)
         return {
-            "action": "send",
+            "action": "end",
             "body": "Apologies — I won't message again. If anything changes, you can always restart with 'Hi Vera'.",
             "cta": "none",
-            "rationale": "Merchant explicitly opted out. Sending one-line acknowledgment + suppressing all triggers for 30 days."
+            "rationale": "Merchant explicitly opted out. Ending conversation + suppressing all triggers for 30 days."
         }
 
     # ─── Off-topic detection ──────────────────────────────────────────
