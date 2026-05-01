@@ -14,7 +14,7 @@ LLM_TIMEOUT = 25  # seconds — must fit within 30s judge timeout
 # ─── Team Metadata ────────────────────────────────────────────────────────────
 TEAM_NAME = "Vera Engine"
 TEAM_MEMBERS = ["Aditya"]
-MODEL_NAME = "gemini-2.0-flash"
+MODEL_NAME = "google/gemma-3n-e4b-it"
 APPROACH = (
     "Signal-routing composer: picks the single best signal from trigger + merchant state + "
     "category context before composing. 20+ trigger-specific prompt variants. "
