@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn bot.server:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn bot.server:app --host 0.0.0.0 --port $PORT --workers 1
     envVars:
       - key: NVIDIA_API_KEY
         sync: false
