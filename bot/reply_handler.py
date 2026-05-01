@@ -97,7 +97,7 @@ def handle_reply(store: ContextStore, conversation_id: str, merchant_id: str,
                 "action": "send",
                 "body": "Looks like an auto-reply -- when the owner sees this, just reply 'Yes' and I'll take it from there.",
                 "cta": "binary_yes_no",
-                "rationale": "Detected auto-reply; one explicit prompt to flag it for the owner."
+                "rationale": "Detected auto-reply; count=" + str(auto_count) + " of needed 2. Prompt to flag for owner."
             }
 
     # --- Hostile / opt-out detection ---
