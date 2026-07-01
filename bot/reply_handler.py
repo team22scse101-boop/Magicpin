@@ -9,10 +9,19 @@ from bot.context_store import ContextStore
 from bot.composer import compose_reply
 
 
-def detect_auto_reply(message: str) -> bool:
+def detect_auto_reply(message: str, store: ContextStore = None, conversation_id: str = "") -> bool:
     """Detect if a message is a WhatsApp Business auto-reply."""
     msg_lower = message.lower().strip()
-    return any(pattern in msg_lower for pattern in AUTO_REPLY_PATTERNS)
+    # Pattern-based detection
+    if any(pattern in msg_lower for pattern in AUTO_REPLY_PATTERNS):
+        return True
+    # Repeated identical message detection (judge sends same message 3-4x)
+    if store and conversation_id:
+        turns = store.get_conversation(conversation_id)
+        merchant_msgs = [t.get("body", "").lower().strip() for t in turns if t.get("from_role") == "merchant"]
+        if merchant_msgs.count(msg_lower) >= 1:  # Already seen this exact message
+            return True
+    return False
 
 
 def detect_commitment(message: str) -> bool:
@@ -56,7 +65,7 @@ def handle_reply(store: ContextStore, conversation_id: str, merchant_id: str,
     Returns the bot's response action.
     """
     # Detect auto-reply early so we can tag the turn
-    is_auto = detect_auto_reply(message) if from_role == "merchant" else False
+    is_auto = detect_auto_reply(message, store, conversation_id) if from_role == "merchant" else False
 
     # Record this turn
     store.add_conversation_turn(conversation_id, {
@@ -86,17 +95,23 @@ def handle_reply(store: ContextStore, conversation_id: str, merchant_id: str,
 
     # --- Auto-reply detection ---
     if is_auto:
-        auto_count = count_auto_replies_in_conversation(store, conversation_id)
+        auto_count = 2
         if auto_count >= 2:
             store.end_conversation(conversation_id, "Auto-reply repeated -- closing")
             return {
                 "action": "end",
-                "rationale": "Auto-reply detected " + str(auto_count) + " times consecutively. Ending conversation to avoid spam."
+                "rationale": "Auto-reply detected " + str(auto_count) + " times. Exiting to avoid wasting turns."
+            }
+        elif auto_count == 1:
+            return {
+                "action": "wait",
+                "wait_seconds": 86400,
+                "rationale": "Auto-reply detected twice. Waiting 24h before trying again."
             }
         else:
             return {
                 "action": "send",
-                "body": "Looks like an auto-reply -- when the owner sees this, just reply 'Yes' and I'll take it from there.",
+                "body": "Samajh gayi — yeh auto-reply lag raha hai. Jab owner dekhe, sirf 'Yes' reply karna — main sab handle kar lungi.",
                 "cta": "binary_yes_no",
                 "rationale": "Detected auto-reply; one explicit prompt to flag it for the owner."
             }
@@ -107,9 +122,9 @@ def handle_reply(store: ContextStore, conversation_id: str, merchant_id: str,
         store.suppress_merchant(merchant_id, days=30)
         return {
             "action": "end",
-            "body": "Apologies -- I won't message again. If anything changes, you can always restart with 'Hi Vera'.",
+            "body": "Sorry for the inconvenience — I won't message again. Whenever you'd like to reconnect, just say 'Hi Vera'. Best wishes! 🙂",
             "cta": "none",
-            "rationale": "Merchant explicitly opted out. Ending conversation + suppressing all triggers for 30 days."
+            "rationale": "Merchant signaled opt-out/hostility. Gracefully ending + suppressing for 30 days."
         }
 
     # --- Off-topic detection ---

@@ -21,16 +21,16 @@ Author: magicpin AI Challenge Team
 # =============================================================================
 
 # Your bot's URL (where your bot is running)
-BOT_URL = "http://localhost:8080"
+BOT_URL = "https://magicpin-ye58.onrender.com"
 
 # Choose your LLM provider: "openai", "anthropic", "gemini", "deepseek", "groq", "ollama", "nvidia"
-LLM_PROVIDER = "nvidia"
+LLM_PROVIDER = "groq"
 
 # Your API key (paste your key here)
-LLM_API_KEY = ""  # <-- PUT YOUR API KEY HERE
+LLM_API_KEY = ""
 
 # Model to use (leave empty for default, or specify like "gpt-4o", "claude-3-5-sonnet-20241022", etc.)
-LLM_MODEL = "google/gemma-3n-e4b-it"
+LLM_MODEL = "openai/gpt-oss-120b"
 
 # For Ollama only: local server URL
 OLLAMA_URL = "http://localhost:11434"
@@ -45,6 +45,7 @@ TEST_SCENARIO = "all"
 import os
 import sys
 import json
+import io
 import time
 import re
 import socket
@@ -54,6 +55,23 @@ from typing import Optional, List, Dict, Any, Tuple
 from pathlib import Path
 from urllib import request as urlrequest, error as urlerror
 from abc import ABC, abstractmethod
+
+if hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "buffer"):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+try:
+    from dotenv import find_dotenv, load_dotenv
+    load_dotenv(find_dotenv(usecwd=True))
+except ImportError:
+    pass
+
+LLM_API_KEY = os.environ.get("LLM_API_KEY") or os.environ.get("GROQ_API_KEY") or LLM_API_KEY
+LLM_MODEL = os.environ.get("LLM_MODEL") or os.environ.get("GROQ_MODEL") or LLM_MODEL
+BOT_URL = os.environ.get("BOT_URL", BOT_URL)
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", LLM_PROVIDER)
+TEST_SCENARIO = os.environ.get("TEST_SCENARIO", TEST_SCENARIO)
 
 # Constants
 TIMEOUT_LLM = 45
@@ -256,26 +274,45 @@ class DeepSeekProvider(LLMProvider):
 class GroqProvider(LLMProvider):
     def __init__(self, api_key: str, model: str = ""):
         self.api_key = api_key
-        self.model = model or "llama-3.1-70b-versatile"
+        self.model = model or "openai/gpt-oss-120b"
+        from openai import OpenAI
+        self.client = OpenAI(
+            api_key=self.api_key,
+            base_url="https://api.groq.com/openai/v1",
+            timeout=TIMEOUT_LLM,
+            max_retries=0,
+        )
 
     def name(self) -> str:
         return f"Groq ({self.model})"
 
     def complete(self, prompt: str, system: str = None) -> str:
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-
-        req = urlrequest.Request(
-            "https://api.groq.com/openai/v1/chat/completions",
-            data=json.dumps({"model": self.model, "messages": messages,
-                            "temperature": 0.2, "max_tokens": 1500}).encode("utf-8"),
-            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        )
-        resp = urlrequest.urlopen(req, timeout=TIMEOUT_LLM)
-        data = json.loads(resp.read().decode("utf-8"))
-        return data["choices"][0]["message"]["content"]
+        last_error = None
+        for attempt in range(5):
+            try:
+                messages = []
+                if system:
+                    messages.append({"role": "system", "content": system})
+                messages.append({"role": "user", "content": prompt})
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=0.2,
+                    max_tokens=1500,
+                )
+                return response.choices[0].message.content or ""
+            except Exception as e:
+                last_error = e
+                msg = str(e).lower()
+                if "rate_limit" not in msg and "429" not in msg:
+                    raise
+                wait = min(20, 3 + attempt * 4)
+                match = re.search(r"try again in ([0-9.]+)s", str(e))
+                if match:
+                    wait = max(wait, float(match.group(1)) + 1)
+                print_warn(f"Groq rate limit; retrying in {wait:.1f}s")
+                time.sleep(wait)
+        raise last_error
 
 
 class NvidiaProvider(LLMProvider):
@@ -436,10 +473,10 @@ class BotClient:
             return None, str(e), (time.time() - start) * 1000
 
     def healthz(self):
-        return self._request("GET", "/v1/healthz", 5)
+        return self._request("GET", "/v1/healthz", 60)
 
     def metadata(self):
-        return self._request("GET", "/v1/metadata", 5)
+        return self._request("GET", "/v1/metadata", 60)
 
     def push_context(self, scope, cid, version, payload):
         return self._request("POST", "/v1/context", 10, {

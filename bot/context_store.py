@@ -36,7 +36,7 @@ class ContextStore:
             key = (scope, context_id)
             existing = self._store.get(key)
 
-            if existing and existing["version"] >= version:
+            if existing and existing["version"] > version:
                 return False, "stale_version", existing["version"]
 
             self._store[key] = {
