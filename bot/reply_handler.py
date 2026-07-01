@@ -142,29 +142,7 @@ def handle_reply(store: ContextStore, conversation_id: str, merchant_id: str,
     # --- Intent/commitment detection ---
     if detect_commitment(message):
         merchant = store.get_merchant(merchant_id) or {}
-        category = store.get_category_for_merchant(merchant) or {}
         original_trigger = _find_original_trigger(store, conversation_id) or {}
-        customer = store.get_customer(customer_id) if customer_id else None
-        conv_history = store.get_conversation(conversation_id)
-
-        # Try LLM first
-        result = compose_reply(category, merchant, original_trigger,
-                               conv_history, message, customer)
-
-        # Check if we got a real response (not a fallback)
-        body = result.get("body", "")
-        is_fallback = "follow up" in body.lower() or "noted" in body.lower() or not body
-
-        if result.get("action") == "send" and not is_fallback:
-            qualifying_words = ["would you", "do you think", "can you tell me", "how about"]
-            if any(q in body.lower() for q in qualifying_words):
-                owner = merchant.get("identity", {}).get("owner_first_name", "")
-                result["body"] = "Great, " + owner + "! Working on it now -- I'll have the draft ready in a moment. Reply CONFIRM when you'd like me to proceed."
-                result["cta"] = "binary_confirm_cancel"
-                result["rationale"] = "Merchant committed; switching to action mode immediately."
-            return result
-
-        # Smart deterministic fallback based on trigger kind
         owner = merchant.get("identity", {}).get("owner_first_name", "")
         kind = original_trigger.get("kind", "update")
         perf = merchant.get("performance", {})
@@ -190,7 +168,7 @@ def handle_reply(store: ContextStore, conversation_id: str, merchant_id: str,
             "action": "send",
             "body": fallback_body,
             "cta": "binary_confirm_cancel",
-            "rationale": "Merchant committed to " + kind + "; switching to action mode with context-specific response."
+            "rationale": "Merchant committed to " + kind + "; deterministic action-mode response to avoid latency."
         }
 
     # --- General reply -- use LLM ---
